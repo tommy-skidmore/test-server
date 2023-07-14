@@ -12,7 +12,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-//#if defined(BOOST_ASIO_HAS_CO_AWAIT)
 
 namespace beast = boost::beast;         // from <boost/beast.hpp>
 namespace http = beast::http;           // from <boost/beast/http.hpp>
@@ -26,3 +25,4 @@ using stream = websocket::stream<
             typename net::use_awaitable_t<>::executor_with_default<net::any_io_executor>>::other>;
 
 void handleWebSocketConnection(beast::websocket::stream<tcp::socket> ws);
+//void listen_for_cords(stream ws);

@@ -1,32 +1,10 @@
 
-#include <boost/beast/core.hpp>
-#include <boost/beast/websocket.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <algorithm>
-#include <cstdlib>
-#include <functional>
-#include <iostream>
-#include <memory>
-#include <string>
-#include <thread>
-#include <vector>
+#include "websocket.hpp"
 
-namespace beast = boost::beast;         // from <boost/beast.hpp>
-namespace http = beast::http;           // from <boost/beast/http.hpp>
-namespace websocket = beast::websocket; // from <boost/beast/websocket.hpp>
-namespace net = boost::asio;            // from <boost/asio.hpp>
-using tcp = boost::asio::ip::tcp;       // from <boost/asio/ip/tcp.hpp>
-
-using stream = websocket::stream<
-        typename beast::tcp_stream::rebind_executor<
-            typename net::use_awaitable_t<>::executor_with_default<net::any_io_executor>>::other>;
-
+using MessageCallback = std::function<void(const std::string&)>;
 
 net::awaitable<void>
-do_session(stream ws)
+do_session(stream ws, MessageCallback callback)
 {
     // Set suggested timeout settings for the websocket
     ws.set_option(
@@ -44,29 +22,27 @@ do_session(stream ws)
 
     // Accept the websocket handshake
     co_await ws.async_accept();
+    bool continueLoop = true;
+    while (continueLoop) {
+    // Read a message
+        beast::flat_buffer buffer;
+        co_await ws.async_read(buffer);
+        std::string receivedMessage = boost::asio::buffer_cast<const char*>(buffer.data());
 
-    for(;;)
-        try {
-            // This buffer will hold the incoming message
-            beast::flat_buffer buffer;
-
-            // Read a message
-            co_await ws.async_read(buffer);
-            std::cout << boost::asio::buffer_cast<const char*>(buffer.data()) << std::endl;
-            // Echo the message back
-            ws.text(ws.got_text());
-            co_await ws.async_write(buffer.data());
-            //std::string message = "Hello Client!";
-            //co_await ws.async_write(boost::asio::buffer(message));
-            buffer.consume(buffer.size()); //clear buffer
-        }
-        catch(boost::system::system_error & se)
-        {
-            if (se.code() != websocket::error::closed) {
-                throw;      
+    // Check the received message
+        if (receivedMessage.length() == 160) {
+            continueLoop = false;
+            callback(receivedMessage);//send coordinates to shim_client_manager
+            std::cout << "Received stop_loop message. Loop suspended." << receivedMessage << std::endl;
+        } else {
+        // Process other messages
+            std::cout << "Received message: " << receivedMessage << std::endl;
             }
-            break;
-        }
+
+    // Clear the buffer for the next read
+        buffer.consume(buffer.size());
+    }
+    
 }
 
 
@@ -92,7 +68,7 @@ do_listen(
     for(;;)
         net::co_spawn(
                 acceptor.get_executor(),
-                do_session(stream(co_await acceptor.async_accept())),
+                do_session(stream(co_await acceptor.async_accept()),
                 [](std::exception_ptr e)
                 {
                     try
